@@ -1,8 +1,14 @@
 import { render, screen } from '@testing-library/react';
 import App from './App';
 
-test('renders learn react link', () => {
+test('renders app title', () => {
   render(<App />);
-  const linkElement = screen.getByText(/learn react/i);
-  expect(linkElement).toBeInTheDocument();
+  const heading = screen.getByRole('heading', { name: /Universal Calculator & Converter/i });
+  expect(heading).toBeInTheDocument();
+});
+
+test('renders calculator and converter panel titles', () => {
+  render(<App />);
+  expect(screen.getByRole('heading', { name: /Calculator/i })).toBeInTheDocument();
+  expect(screen.getByRole('heading', { name: /Unit Converter/i })).toBeInTheDocument();
 });
