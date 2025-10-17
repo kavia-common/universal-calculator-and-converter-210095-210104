@@ -20,6 +20,7 @@ import { getAppConfig } from "./config/appConfig";
 import TwoPanelLayout from "./components/Layout/TwoPanelLayout";
 import Button from "./components/Common/Button";
 import TextField from "./components/Common/TextField";
+import { ValidationService } from "./services/ValidationService";
 import { AuthProvider } from "./context/AuthContext.jsx";
 import { useAuth } from "./hooks/useAuth";
 import { canPerform, ROLES } from "./services/AccessControl";
@@ -297,12 +298,18 @@ function App() {
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <Button
             variant="primary"
-            onClick={() =>
+            onClick={() => {
+              // Example validation integration prior to logging/compute
+              const validation = ValidationService.validateArithmetic(
+                { a: 10, b: 5, op: "div" },
+                { aLabel: "Operand A", bLabel: "Operand B" }
+              );
               audit.logAction(auth.currentUser?.id || "anonymous", "READ", "calculator", {
                 op: "compute",
                 inputs: "placeholder",
-              })
-            }
+                validation: { valid: validation.valid, errors: validation.errors || [], sampleResult: validation.result },
+              });
+            }}
           >
             Compute
           </Button>
@@ -328,12 +335,14 @@ function App() {
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <Button
             variant="secondary"
-            onClick={() =>
+            onClick={() => {
+              const tcheck = ValidationService.validateTemperatureInput(25, "C", { field: "Temperature" });
               audit.logAction(auth.currentUser?.id || "anonymous", "READ", "converter", {
                 op: "convert",
                 inputs: "placeholder",
-              })
-            }
+                validation: { valid: tcheck.valid, errors: tcheck.errors || [], unit: tcheck.unit },
+              });
+            }}
           >
             Convert
           </Button>
