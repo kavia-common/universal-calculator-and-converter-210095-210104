@@ -27,6 +27,7 @@ import { canPerform, ROLES } from "./services/AccessControl";
 import { AuditProvider } from "./context/AuditContext.jsx";
 import { useAudit } from "./hooks/useAudit";
 import EsignModal from "./components/Audit/EsignModal.jsx";
+import Calculator from "./components/Calculator/Calculator.jsx";
 
 /**
  * PUBLIC_INTERFACE
@@ -290,38 +291,8 @@ function App() {
 
     const leftPanel = (
       <div>
-        <p>
-          Placeholder: Basic Calculator will appear here. It will support
-          addition, subtraction, multiplication, and division with validation and
-          an audit trail in later steps.
-        </p>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <Button
-            variant="primary"
-            onClick={() => {
-              // Example validation integration prior to logging/compute
-              const validation = ValidationService.validateArithmetic(
-                { a: 10, b: 5, op: "div" },
-                { aLabel: "Operand A", bLabel: "Operand B" }
-              );
-              audit.logAction(auth.currentUser?.id || "anonymous", "READ", "calculator", {
-                op: "compute",
-                inputs: "placeholder",
-                validation: { valid: validation.valid, errors: validation.errors || [], sampleResult: validation.result },
-              });
-            }}
-          >
-            Compute
-          </Button>
-          <Button
-            variant="ghost"
-            disabled={!adminAllowed || busy}
-            aria-disabled={!adminAllowed ? "true" : undefined}
-            onClick={() => adminAllowed && openEsign("export")}
-          >
-            Export Audit (Admin)
-          </Button>
-        </div>
+        {/* Calculator feature */}
+        <Calculator />
       </div>
     );
 
