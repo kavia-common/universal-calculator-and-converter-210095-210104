@@ -28,6 +28,7 @@ import { AuditProvider } from "./context/AuditContext.jsx";
 import { useAudit } from "./hooks/useAudit";
 import EsignModal from "./components/Audit/EsignModal.jsx";
 import Calculator from "./components/Calculator/Calculator.jsx";
+import UnitConverter from "./components/Converter/UnitConverter.jsx";
 
 /**
  * PUBLIC_INTERFACE
@@ -298,25 +299,11 @@ function App() {
 
     const rightPanel = (
       <div>
-        <p>
-          Placeholder: Unit/Scale Converter will appear here. It will support
-          conversions (e.g., length, mass, temperature) and adhere to validation
-          rules in later steps.
-        </p>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <Button
-            variant="secondary"
-            onClick={() => {
-              const tcheck = ValidationService.validateTemperatureInput(25, "C", { field: "Temperature" });
-              audit.logAction(auth.currentUser?.id || "anonymous", "READ", "converter", {
-                op: "convert",
-                inputs: "placeholder",
-                validation: { valid: tcheck.valid, errors: tcheck.errors || [], unit: tcheck.unit },
-              });
-            }}
-          >
-            Convert
-          </Button>
+        {/* Unit/Scale Converter */}
+        <UnitConverter />
+
+        {/* Admin tools */}
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
           <Button
             variant="ghost"
             disabled={!adminAllowed || busy}
