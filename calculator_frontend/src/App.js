@@ -23,6 +23,8 @@ import TextField from "./components/Common/TextField";
 import { AuthProvider } from "./context/AuthContext.jsx";
 import { useAuth } from "./hooks/useAuth";
 import { canPerform, ROLES } from "./services/AccessControl";
+import { AuditProvider } from "./context/AuditContext.jsx";
+import { useAudit } from "./hooks/useAudit";
 
 /**
  * PUBLIC_INTERFACE
@@ -55,6 +57,7 @@ const ACTION_MATRIX = Object.freeze({
 // Inline component to render sign-in/out area in the header toolbar.
 function AuthControls() {
   const auth = useAuth();
+  const audit = useAudit();
   const userId = useId();
   const passId = useId();
   const [username, setUsername] = useReactState("");
@@ -71,7 +74,19 @@ function AuthControls() {
             ({auth.roles.join(", ") || "no roles"})
           </span>
         </span>
-        <Button variant="ghost" onClick={auth.signOut}>
+        <Button
+          variant="ghost"
+          onClick={() => {
+            // Log DELETE of session with reason (destructive action requires reason)
+            const uid = auth.currentUser?.id || "unknown";
+            try {
+              audit.logAction(uid, "DELETE", "session", { method: "toolbar" }, { reason: "User requested sign-out" });
+            } catch (e) {
+              audit.recordError(e, { userId: uid, entity: "auth-signout" });
+            }
+            auth.signOut();
+          }}
+        >
           Sign out
         </Button>
       </div>
@@ -86,10 +101,23 @@ function AuthControls() {
         setLoading(true);
         try {
           await auth.signIn(username, password);
+          // Attempt to log sign-in as CREATE session. Use currentUser if present; fallback to entered username.
+          const uid = auth.currentUser?.id || String(username || "unknown");
+          try {
+            audit.logAction(uid, "CREATE", "session", { username: String(username) });
+          } catch (e) {
+            audit.recordError(e, { userId: uid, entity: "auth-signin" });
+          }
           setUsername("");
           setPassword("");
         } catch (err) {
           setError(err instanceof Error ? err.message : "Sign-in failed");
+          // Log failed auth attempt as error entry
+          try {
+            audit.recordError(err, { entity: "auth-failure", extra: { username: String(username) } });
+          } catch {
+            // ignore
+          }
         } finally {
           setLoading(false);
         }
@@ -160,6 +188,7 @@ function App() {
   // Admin action buttons below are guarded using AccessControl.canPerform.
   function PanelContent() {
     const auth = useAuth();
+    const audit = useAudit();
     const adminAllowed = canPerform("ADMIN_ACTION", ACTION_MATRIX, auth.roles);
 
     const leftPanel = (
@@ -170,7 +199,17 @@ function App() {
           an audit trail in later steps.
         </p>
         <div style={{ display: "flex", gap: 8 }}>
-          <Button variant="primary">Compute</Button>
+          <Button
+            variant="primary"
+            onClick={() =>
+              audit.logAction(auth.currentUser?.id || "anonymous", "READ", "calculator", {
+                op: "compute",
+                inputs: "placeholder",
+              })
+            }
+          >
+            Compute
+          </Button>
           <Button variant="ghost" disabled={!adminAllowed} aria-disabled={!adminAllowed ? "true" : undefined}>
             Admin action (placeholder)
           </Button>
@@ -186,7 +225,17 @@ function App() {
           rules in later steps.
         </p>
         <div style={{ display: "flex", gap: 8 }}>
-          <Button variant="secondary">Convert</Button>
+          <Button
+            variant="secondary"
+            onClick={() =>
+              audit.logAction(auth.currentUser?.id || "anonymous", "READ", "converter", {
+                op: "convert",
+                inputs: "placeholder",
+              })
+            }
+          >
+            Convert
+          </Button>
           <Button variant="ghost" disabled={!adminAllowed} aria-disabled={!adminAllowed ? "true" : undefined}>
             Admin action (placeholder)
           </Button>
@@ -207,51 +256,53 @@ function App() {
   return (
     <ConfigContext.Provider value={config}>
       <ThemeContext.Provider value={themeValue}>
-        <AuthProvider>
-          <div className="app-shell">
-            <header className="app-header" role="banner">
-              <div className="container app-header__bar">
-                <div className="brand">
-                  <h1 className="brand__title">
-                    Universal Calculator & Converter
-                  </h1>
-                  <p className="brand__subtitle">Ocean Professional Theme</p>
+        <AuditProvider>
+          <AuthProvider>
+            <div className="app-shell">
+              <header className="app-header" role="banner">
+                <div className="container app-header__bar">
+                  <div className="brand">
+                    <h1 className="brand__title">
+                      Universal Calculator & Converter
+                    </h1>
+                    <p className="brand__subtitle">Ocean Professional Theme</p>
+                  </div>
+                  <div className="toolbar" role="navigation" aria-label="App toolbar">
+                    <Button
+                      className="theme-toggle"
+                      variant="ghost"
+                      aria-pressed={theme === "dark" ? "true" : "false"}
+                      aria-label={`Switch to ${theme === "light" ? "dark" : "light"} mode`}
+                      onClick={themeValue.toggleTheme}
+                    >
+                      {theme === "light" ? "🌙 Dark Mode" : "☀️ Light Mode"}
+                    </Button>
+                    <span
+                      className="sr-only"
+                      aria-live="polite"
+                    >{`Theme is ${theme}`}</span>
+
+                    {/* Sign-in / User info controls */}
+                    <AuthControls />
+                  </div>
                 </div>
-                <div className="toolbar" role="navigation" aria-label="App toolbar">
-                  <Button
-                    className="theme-toggle"
-                    variant="ghost"
-                    aria-pressed={theme === "dark" ? "true" : "false"}
-                    aria-label={`Switch to ${theme === "light" ? "dark" : "light"} mode`}
-                    onClick={themeValue.toggleTheme}
-                  >
-                    {theme === "light" ? "🌙 Dark Mode" : "☀️ Light Mode"}
-                  </Button>
-                  <span
-                    className="sr-only"
-                    aria-live="polite"
-                  >{`Theme is ${theme}`}</span>
+              </header>
 
-                  {/* Sign-in / User info controls */}
-                  <AuthControls />
+              <main className="app-main" role="main">
+                <div className="container">
+                  <PanelContent />
                 </div>
-              </div>
-            </header>
+              </main>
 
-            <main className="app-main" role="main">
-              <div className="container">
-                <PanelContent />
-              </div>
-            </main>
-
-            <footer className="app-footer container" role="contentinfo" style={{ padding: "12px 0 24px", color: "var(--color-muted)", fontSize: "0.9rem" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
-                <div>Version: {config.APP_VERSION}</div>
-                <div aria-label="Admin actions placeholder">Admin: Actions coming soon</div>
-              </div>
-            </footer>
-          </div>
-        </AuthProvider>
+              <footer className="app-footer container" role="contentinfo" style={{ padding: "12px 0 24px", color: "var(--color-muted)", fontSize: "0.9rem" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+                  <div>Version: {config.APP_VERSION}</div>
+                  <div aria-label="Admin actions placeholder">Admin: Actions coming soon</div>
+                </div>
+              </footer>
+            </div>
+          </AuthProvider>
+        </AuditProvider>
       </ThemeContext.Provider>
     </ConfigContext.Provider>
   );
