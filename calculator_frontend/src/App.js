@@ -25,6 +25,7 @@ import { useAuth } from "./hooks/useAuth";
 import { canPerform, ROLES } from "./services/AccessControl";
 import { AuditProvider } from "./context/AuditContext.jsx";
 import { useAudit } from "./hooks/useAudit";
+import EsignModal from "./components/Audit/EsignModal.jsx";
 
 /**
  * PUBLIC_INTERFACE
@@ -191,6 +192,101 @@ function App() {
     const audit = useAudit();
     const adminAllowed = canPerform("ADMIN_ACTION", ACTION_MATRIX, auth.roles);
 
+    // E-sign modal state and handlers
+    const [esignOpen, setEsignOpen] = useState(false);
+    const [esignPurpose, setEsignPurpose] = useState(null); // "export" | "clear" | null
+    const [busy, setBusy] = useState(false);
+
+    function openEsign(purpose) {
+      setEsignPurpose(purpose);
+      setEsignOpen(true);
+    }
+
+    function closeEsign() {
+      setEsignOpen(false);
+      setEsignPurpose(null);
+    }
+
+    function downloadFile({ content, filename, mimeType }) {
+      try {
+        const blob = new Blob([content], { type: mimeType || "application/octet-stream" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename || "download.txt";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      } catch (e) {
+        audit.recordError(e, { entity: "audit-export", reason: "Failed to initiate download" });
+        window.alert("Download failed. Please try again.");
+      }
+    }
+
+    async function handleEsignSubmit({ payload, credentials }) {
+      // payload: e-sign payload (no secrets)
+      // credentials: { username, password, reason? } used only for service call and NEVER logged
+      if (!esignPurpose) return;
+      setBusy(true);
+      const uid = auth.currentUser?.id || "unknown";
+      try {
+        if (esignPurpose === "export") {
+          // Count logs for context
+          let total = 0;
+          try {
+            const resCount = audit.getLogs({ page: 1, pageSize: 1 });
+            total = resCount?.total || 0;
+          } catch {
+            // ignore count error
+          }
+
+          // Export JSON by default
+          const exported = audit.exportLogs("json");
+          downloadFile(exported);
+
+          // Log READ action with e-sign binding
+          try {
+            audit.logAction(uid, "READ", "audit", {
+              operation: "exportLogs",
+              exportFile: exported.filename,
+              count: total,
+              eSign: payload, // non-repudiation binding
+            });
+          } catch (e) {
+            audit.recordError(e, { userId: uid, entity: "audit-export" });
+          }
+        } else if (esignPurpose === "clear") {
+          // Clear logs (destructive) - requires reason and comment in payload
+          try {
+            const res = audit.clearLogs({
+              username: credentials.username,
+              password: credentials.password,
+              reason: credentials.reason || payload.reason || "Administrative clear",
+            });
+
+            // Record the destructive action AFTER clearing so this event persists
+            audit.logAction(uid, "DELETE", "audit", {
+              operation: "clearLogs",
+              cleared: res?.cleared ?? null,
+              eSign: payload, // non-repudiation binding
+            }, {
+              reason: payload?.reason || "Administrative clear with e-signature",
+            });
+          } catch (e) {
+            audit.recordError(e, { userId: uid, entity: "audit-clear", reason: "Failed to clear logs" });
+            window.alert("Failed to clear audit logs. Please verify your signature and try again.");
+          }
+        }
+      } catch (err) {
+        audit.recordError(err, { userId: uid, entity: "esign-flow", reason: "Unhandled e-sign operation error" });
+        window.alert("Operation failed. Please try again.");
+      } finally {
+        setBusy(false);
+        closeEsign();
+      }
+    }
+
     const leftPanel = (
       <div>
         <p>
@@ -198,7 +294,7 @@ function App() {
           addition, subtraction, multiplication, and division with validation and
           an audit trail in later steps.
         </p>
-        <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <Button
             variant="primary"
             onClick={() =>
@@ -210,8 +306,13 @@ function App() {
           >
             Compute
           </Button>
-          <Button variant="ghost" disabled={!adminAllowed} aria-disabled={!adminAllowed ? "true" : undefined}>
-            Admin action (placeholder)
+          <Button
+            variant="ghost"
+            disabled={!adminAllowed || busy}
+            aria-disabled={!adminAllowed ? "true" : undefined}
+            onClick={() => adminAllowed && openEsign("export")}
+          >
+            Export Audit (Admin)
           </Button>
         </div>
       </div>
@@ -224,7 +325,7 @@ function App() {
           conversions (e.g., length, mass, temperature) and adhere to validation
           rules in later steps.
         </p>
-        <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <Button
             variant="secondary"
             onClick={() =>
@@ -236,10 +337,26 @@ function App() {
           >
             Convert
           </Button>
-          <Button variant="ghost" disabled={!adminAllowed} aria-disabled={!adminAllowed ? "true" : undefined}>
-            Admin action (placeholder)
+          <Button
+            variant="ghost"
+            disabled={!adminAllowed || busy}
+            aria-disabled={!adminAllowed ? "true" : undefined}
+            onClick={() => adminAllowed && openEsign("clear")}
+          >
+            Clear Audit (Admin)
           </Button>
         </div>
+
+        {/* E-Sign modal lives here to access auth/audit contexts */}
+        <EsignModal
+          open={Boolean(esignOpen)}
+          onCancel={() => !busy && closeEsign()}
+          onSubmit={handleEsignSubmit}
+          title={esignPurpose === "clear" ? "Electronic Signature - Clear Audit" : "Electronic Signature - Export Audit"}
+          actionLabel={esignPurpose === "clear" ? "Sign & Clear" : "Sign & Export"}
+          requireJustification={esignPurpose === "clear"} // require reason/comment for destructive ops
+          defaultUsername={auth.currentUser?.username || ""}
+        />
       </div>
     );
 
@@ -297,7 +414,7 @@ function App() {
               <footer className="app-footer container" role="contentinfo" style={{ padding: "12px 0 24px", color: "var(--color-muted)", fontSize: "0.9rem" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
                   <div>Version: {config.APP_VERSION}</div>
-                  <div aria-label="Admin actions placeholder">Admin: Actions coming soon</div>
+                  <div aria-label="Admin actions">Admin: Export and Clear Audit available in panels</div>
                 </div>
               </footer>
             </div>
